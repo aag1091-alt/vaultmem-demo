@@ -74,33 +74,46 @@ def vault_file_sizes(name: str) -> list[tuple[str, int]]:
 
 # ── LLM response ──────────────────────────────────────────────────────────────
 
-def respond(query: str, memories: list[str], api_key: str) -> str:
-    if not memories:
-        return "I don't have any relevant memories about that yet. Tell me more!"
+def is_question(text: str) -> bool:
+    t = text.strip()
+    return t.endswith("?") or t.lower().startswith(("what", "who", "where", "when", "why", "how", "do ", "did ", "is ", "are ", "can ", "does "))
 
-    if api_key:
+
+def respond(query: str, memories: list[str], groq_key: str) -> str:
+    if not memories:
+        if is_question(query):
+            return "I don't have anything in memory about that yet. Tell me first and I'll remember it."
+        return "Got it, I'll remember that."
+
+    if groq_key:
         try:
-            import anthropic
+            from groq import Groq
             mem_block = "\n".join(f"- {m}" for m in memories)
-            msg = anthropic.Anthropic(api_key=api_key).messages.create(
-                model="claude-haiku-4-5-20251001",
+            msg = Groq(api_key=groq_key).chat.completions.create(
+                model="llama-3.3-70b-versatile",
                 max_tokens=400,
-                system=(
-                    "You are a helpful personal AI assistant. "
-                    "Use only the retrieved memories below to answer. Be concise.\n\n"
-                    f"Retrieved memories:\n{mem_block}"
-                ),
-                messages=[{"role": "user", "content": query}],
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a helpful personal AI assistant. "
+                            "Use only the retrieved memories below to answer directly and concisely. "
+                            "Do not mention 'memories' or 'based on' — just answer naturally.\n\n"
+                            f"Retrieved memories:\n{mem_block}"
+                        ),
+                    },
+                    {"role": "user", "content": query},
+                ],
             )
-            return msg.content[0].text
+            return msg.choices[0].message.content
         except Exception as exc:
-            return f"*(Claude error: {exc})*\n\nFrom memories: {memories[0]}"
+            return f"*(Groq error: {exc})*\n\nFrom memories: {memories[0]}"
 
     # Template fallback — no API key needed
-    if len(memories) == 1:
-        return f"Based on what you've shared: **{memories[0]}**"
+    if is_question(query):
+        return f"Based on what you've told me: **{memories[0]}**"
     bullets = "\n".join(f"• {m}" for m in memories[:3])
-    return f"Here's what I remember that's relevant:\n\n{bullets}"
+    return f"Noted! Related things I already know:\n\n{bullets}"
 
 # ── Page setup ────────────────────────────────────────────────────────────────
 
@@ -124,11 +137,12 @@ with st.sidebar:
 
     st.divider()
     api_key = st.text_input(
-        "Anthropic API key *(optional)*",
+        "Groq API key *(free)*",
         type="password",
-        placeholder="sk-ant-...",
-        help="Without a key, responses use a template. With it, Claude answers using your memories.",
+        placeholder="gsk_...",
+        help="Free at console.groq.com — no credit card. Without a key, responses use a template.",
     )
+    st.caption("👆 [Get a free Groq key](https://console.groq.com) — takes 30 seconds")
 
     st.divider()
     st.markdown("""
@@ -258,9 +272,10 @@ else:
                 from vaultmem import VaultSession
                 vd = vault_dir(name)
                 with VaultSession.open(vd, phr, embedder=_EMBEDDER) as s:
-                    s.add(user_input)
+                    # Only store statements, not questions
+                    if not is_question(user_input):
+                        s.add(user_input)
                     results = s.search(user_input, top_k=4)
-                    # Skip the message we just added (it scores highest trivially)
                     memories = [
                         r.atom.content for r in results
                         if r.atom.content != user_input
