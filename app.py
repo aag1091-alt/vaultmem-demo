@@ -11,6 +11,7 @@ Deploy free:
 
 import hashlib
 import re
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -198,6 +199,11 @@ with st.sidebar:
 
 # ── Session state ─────────────────────────────────────────────────────────────
 
+# sid is a short unique ID per browser tab — scopes the demo vault so every
+# visitor gets their own isolated copy and cannot see or pollute others' data.
+if "sid" not in st.session_state:
+    st.session_state.sid = uuid.uuid4().hex[:8]
+
 for key, default in [("unlocked", False), ("vault_name", None),
                      ("passphrase", None), ("messages", [])]:
     if key not in st.session_state:
@@ -205,7 +211,6 @@ for key, default in [("unlocked", False), ("vault_name", None),
 
 # ── Demo vault seed + open ────────────────────────────────────────────────────
 
-DEMO_NAME       = "demo_showcase"
 DEMO_PASSPHRASE = "demo"
 DEMO_MEMORIES   = [
     # ── EPISODIC — time-anchored events ──────────────────────────────────────
@@ -251,26 +256,26 @@ DEMO_MEMORIES   = [
 ]
 
 
-def ensure_demo_vault():
-    """Seed (or re-seed) the demo vault."""
+def ensure_demo_vault(demo_name: str) -> None:
+    """Seed a fresh per-session demo vault."""
     import shutil
     from vaultmem import VaultSession
-    vd = vault_dir(DEMO_NAME)
-    # Remove stale vault so it gets re-seeded with current DEMO_MEMORIES
+    vd = vault_dir(demo_name)
     if vd.exists():
         shutil.rmtree(vd)
     vd.mkdir(parents=True, exist_ok=True)
-    with VaultSession.create(vd, DEMO_PASSPHRASE, DEMO_NAME, embedder=_EMBEDDER) as s:
+    with VaultSession.create(vd, DEMO_PASSPHRASE, demo_name, embedder=_EMBEDDER) as s:
         for memory in DEMO_MEMORIES:
             s.add(memory)
         s.flush()
 
 
 if demo_btn:
+    demo_name = f"demo_{st.session_state.sid}"
     with st.spinner("Loading demo vault…"):
-        ensure_demo_vault()
+        ensure_demo_vault(demo_name)
     st.session_state.unlocked = True
-    st.session_state.vault_name = DEMO_NAME
+    st.session_state.vault_name = demo_name
     st.session_state.passphrase = DEMO_PASSPHRASE
     st.session_state.messages = [{
         "role": "assistant",
