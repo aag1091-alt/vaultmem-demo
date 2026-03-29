@@ -136,13 +136,9 @@ with st.sidebar:
     lock_btn = col_lock.button("Lock", width="stretch")
 
     st.divider()
-    api_key = st.text_input(
-        "Groq API key *(free)*",
-        type="password",
-        placeholder="gsk_...",
-        help="Free at console.groq.com — no credit card. Without a key, responses use a template.",
-    )
-    st.caption("👆 [Get a free Groq key](https://console.groq.com) — takes 30 seconds")
+    # Groq key — loaded from Streamlit secrets (server-side, never exposed to user)
+    # For local dev, create .streamlit/secrets.toml with: GROQ_API_KEY = "gsk_..."
+    api_key = st.secrets.get("GROQ_API_KEY", "")
 
     st.divider()
     st.markdown("""
