@@ -126,13 +126,20 @@ with st.sidebar:
     st.caption("Operator-blind encrypted memory · [GitHub](https://github.com/aag1091-alt/vaultmem-sdk)")
 
     st.divider()
-    st.subheader("Vault access")
+
+    # ── Demo shortcut ─────────────────────────────────────────────────────────
+    demo_btn = st.button("▶ Try Demo", type="primary", width="stretch",
+                         help="Load a pre-seeded vault with 13 example memories across all 4 types")
+    st.caption("[See demo conversations on GitHub](https://github.com/aag1091-alt/vaultmem-demo/blob/main/examples/demo_conversations.md)")
+
+    st.divider()
+    st.subheader("Or open your own vault")
 
     vault_name = st.text_input("Vault name", placeholder="e.g. my_vault")
     passphrase = st.text_input("Passphrase", type="password", placeholder="Secret passphrase")
 
     col_open, col_lock = st.columns(2)
-    open_btn = col_open.button("Open", type="primary", width="stretch")
+    open_btn = col_open.button("Open", width="stretch")
     lock_btn = col_lock.button("Lock", width="stretch")
 
     st.divider()
@@ -144,8 +151,8 @@ with st.sidebar:
     st.markdown("""
 **How it works**
 
-1. Enter a vault name + passphrase
-2. Chat — everything you say is encrypted and stored
+1. Click **Try Demo** or open your own vault
+2. Chat — statements are encrypted and stored
 3. Ask questions — VaultMem retrieves relevant memories
 4. The right panel shows what the **server sees**: pure ciphertext
 
@@ -158,6 +165,59 @@ for key, default in [("unlocked", False), ("vault_name", None),
                      ("passphrase", None), ("messages", [])]:
     if key not in st.session_state:
         st.session_state[key] = default
+
+# ── Demo vault seed + open ────────────────────────────────────────────────────
+
+DEMO_NAME       = "demo_showcase"
+DEMO_PASSPHRASE = "demo"
+DEMO_MEMORIES   = [
+    "I met Sarah Chen at the NeurIPS conference last December. She's a researcher at Stanford working on privacy-preserving ML. We exchanged contacts and plan to collaborate on a paper.",
+    "Had my annual health checkup yesterday. Doctor said my blood pressure is 120/80 — perfectly normal. Cholesterol is slightly high at 210, she recommended cutting back on saturated fats.",
+    "Just finished reading 'The Pragmatic Programmer' last night. The tip that hit hardest: 'Don't live with broken windows.' Small bad code decisions accumulate into unmaintainable systems.",
+    "The Ebbinghaus forgetting curve shows we forget roughly 70% of new information within 24 hours without review. Spaced repetition counteracts this by scheduling reviews at increasing intervals.",
+    "Python's GIL prevents true multi-threading for CPU-bound tasks, but multiprocessing bypasses it by using separate interpreter processes. For I/O-bound tasks, asyncio is usually the better choice.",
+    "AES-256-GCM provides both confidentiality and authenticity. The 128-bit authentication tag detects any tampering with the ciphertext — even flipping a single bit causes decryption to fail.",
+    "I prefer dark mode in all my editors and terminals. Light mode gives me headaches after more than an hour of coding.",
+    "I drink exactly two cups of coffee every morning before I start coding. Espresso-based — flat white or cortado. Never instant.",
+    "I've been vegetarian for five years. Not vegan — I still eat eggs and dairy. Pescatarian once in a while when travelling.",
+    "I work best in 90-minute deep work blocks with a 15-minute break between them. Cal Newport's Deep Work is basically my operating manual.",
+    "My morning routine: alarm at 6:30am, 10 minutes of meditation, then coffee while reading emails. No Slack or meetings before 9am. That first 90-minute block is sacred.",
+    "My code review checklist: tests written before the PR, no function longer than 40 lines, every public function has a docstring, and the PR description explains the 'why' not just the 'what'.",
+    "For deploying to production: run the full test suite locally, create a PR, get one approval minimum, squash merge, then watch the deployment logs for 10 minutes before closing the laptop.",
+]
+
+
+def ensure_demo_vault():
+    """Seed demo vault if it doesn't exist yet."""
+    from vaultmem import VaultSession
+    vd = vault_dir(DEMO_NAME)
+    if not vault_exists(DEMO_NAME):
+        vd.mkdir(parents=True, exist_ok=True)
+        with VaultSession.create(vd, DEMO_PASSPHRASE, DEMO_NAME, embedder=_EMBEDDER) as s:
+            for memory in DEMO_MEMORIES:
+                s.add(memory)
+            s.flush()
+
+
+if demo_btn:
+    with st.spinner("Loading demo vault…"):
+        ensure_demo_vault()
+    st.session_state.unlocked = True
+    st.session_state.vault_name = DEMO_NAME
+    st.session_state.passphrase = DEMO_PASSPHRASE
+    st.session_state.messages = [{
+        "role": "assistant",
+        "content": (
+            "👋 Welcome to the demo vault! I have **13 memories** loaded across all 4 types:\n\n"
+            "- 🕐 **EPISODIC** — Sarah Chen, health checkup, Pragmatic Programmer\n"
+            "- 📚 **SEMANTIC** — Ebbinghaus curve, Python GIL, AES-256-GCM\n"
+            "- 🧠 **PERSONA** — dark mode, coffee habits, vegetarian, deep work\n"
+            "- ⚙️ **PROCEDURAL** — morning routine, code review, deployment process\n\n"
+            "Try asking: *What do I know about Sarah Chen?* or *What's my coffee order?*\n\n"
+            "[See all example conversations on GitHub →](https://github.com/aag1091-alt/vaultmem-demo/blob/main/examples/demo_conversations.md)"
+        ),
+        "memories": [],
+    }]
 
 # ── Open / lock ───────────────────────────────────────────────────────────────
 
