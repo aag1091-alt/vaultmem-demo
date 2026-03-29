@@ -25,27 +25,33 @@ streamlit run app.py
 
 ## Demo account
 
-Click **▶ Try Demo** in the sidebar to load a pre-seeded vault with 13 example memories
+Click **▶ Try Demo** in the sidebar to load a pre-seeded vault with **36 example memories**
 covering all 4 memory types. No passphrase needed.
 
-[See all example conversations in plain text →](examples/demo_conversations.md)
+Each retrieved memory shows its **relevancy score**, **memory type**, and **retrieval tier**.
+
+[See all 36 conversations in plain text →](examples/demo_conversations.md)
 
 ### Suggested questions to ask
 
-| Question | Memory type retrieved |
-|----------|----------------------|
+| Question | Memory type |
+|----------|-------------|
 | What do I know about Sarah Chen? | EPISODIC |
-| What were my health checkup results? | EPISODIC |
-| What book did I finish recently? | EPISODIC |
-| How does spaced repetition work? | SEMANTIC |
+| Tell me about the Tokyo trip | EPISODIC |
+| What happened with my first Kubernetes deployment? | EPISODIC |
+| Tell me about my cat | EPISODIC |
+| How does Flash Attention work? | SEMANTIC |
+| What is the CAP theorem? | SEMANTIC |
+| How does the TCP handshake work? | SEMANTIC |
 | What's the best approach for CPU-bound Python? | SEMANTIC |
-| How does AES-256-GCM work? | SEMANTIC |
-| What are my editor preferences? | PERSONA |
+| What editor do I use? | PERSONA |
 | What coffee do I drink? | PERSONA |
-| Am I vegetarian? | PERSONA |
+| How do I prefer to communicate? | PERSONA |
+| Where do I get my best ideas? | PERSONA |
 | What is my morning routine? | PROCEDURAL |
-| How do I do code reviews? | PROCEDURAL |
-| What's my deployment process? | PROCEDURAL |
+| How do I debug problems? | PROCEDURAL |
+| How do I take notes? | PROCEDURAL |
+| How do I learn a new programming language? | PROCEDURAL |
 
 ---
 

@@ -11,6 +11,7 @@ Deploy free:
 
 import hashlib
 import re
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -79,16 +80,52 @@ def is_question(text: str) -> bool:
     return t.endswith("?") or t.lower().startswith(("what", "who", "where", "when", "why", "how", "do ", "did ", "is ", "are ", "can ", "does "))
 
 
-def respond(query: str, memories: list[str], groq_key: str) -> str:
+class GroqQueryNormalizer:
+    """
+    Uses the server-side Groq key to extract key search terms from the query
+    before embedding — better than regex for complex or unusual phrasing.
+    Falls back to the raw query on any error.
+    """
+    def __init__(self, api_key: str) -> None:
+        self._api_key = api_key
+
+    def normalize(self, text: str) -> str:
+        try:
+            from groq import Groq
+            resp = Groq(api_key=self._api_key).chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                max_tokens=20,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Extract the key search terms from this query. "
+                            "Return only the keywords — no punctuation, no explanation."
+                        ),
+                    },
+                    {"role": "user", "content": text},
+                ],
+            )
+            result = resp.choices[0].message.content.strip()
+            return result if result else text
+        except Exception:
+            return text
+
+
+
+
+def respond(query: str, memories: list[dict], groq_key: str) -> str:
     if not memories:
         if is_question(query):
             return "I don't have anything in memory about that yet. Tell me first and I'll remember it."
         return "Got it, I'll remember that."
 
+    contents = [m["content"] for m in memories]
+
     if groq_key:
         try:
             from groq import Groq
-            mem_block = "\n".join(f"- {m}" for m in memories)
+            mem_block = "\n".join(f"- {c}" for c in contents)
             msg = Groq(api_key=groq_key).chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 max_tokens=400,
@@ -107,12 +144,12 @@ def respond(query: str, memories: list[str], groq_key: str) -> str:
             )
             return msg.choices[0].message.content
         except Exception as exc:
-            return f"*(Groq error: {exc})*\n\nFrom memories: {memories[0]}"
+            return f"*(Groq error: {exc})*\n\nFrom memories: {contents[0]}"
 
     # Template fallback — no API key needed
     if is_question(query):
-        return f"Based on what you've told me: **{memories[0]}**"
-    bullets = "\n".join(f"• {m}" for m in memories[:3])
+        return f"Based on what you've told me: **{contents[0]}**"
+    bullets = "\n".join(f"• {c}" for c in contents[:3])
     return f"Noted! Related things I already know:\n\n{bullets}"
 
 # ── Page setup ────────────────────────────────────────────────────────────────
@@ -171,32 +208,62 @@ for key, default in [("unlocked", False), ("vault_name", None),
 DEMO_NAME       = "demo_showcase"
 DEMO_PASSPHRASE = "demo"
 DEMO_MEMORIES   = [
+    # ── EPISODIC — time-anchored events ──────────────────────────────────────
     "I met Sarah Chen at the NeurIPS conference last December. She's a researcher at Stanford working on privacy-preserving ML. We exchanged contacts and plan to collaborate on a paper.",
     "Had my annual health checkup yesterday. Doctor said my blood pressure is 120/80 — perfectly normal. Cholesterol is slightly high at 210, she recommended cutting back on saturated fats.",
     "Just finished reading 'The Pragmatic Programmer' last night. The tip that hit hardest: 'Don't live with broken windows.' Small bad code decisions accumulate into unmaintainable systems.",
+    "Spent a week in Tokyo last spring. Visited teamLab Planets in Toyosu — the infinite water room genuinely made me lose my sense of up and down. Had ramen at Fuunji in Shinjuku, best I've ever eaten.",
+    "My first Kubernetes cluster in production went sideways the first night. Forgot to set resource limits — a runaway pod starved the whole node. Learned more in that one incident than in two months of tutorials.",
+    "Attended a zero-knowledge proof workshop at ETH Zurich last autumn. Rafael walked us through how you can prove you know a secret without revealing it — felt like magic until the math clicked.",
+    "My grandfather passed away last October. He taught me how to play chess and fix bicycles. I still have his toolkit. Miss him every time I open it.",
+    "Adopted a grey tabby cat named Miso three months ago. She was terrified for the first week, hid behind the radiator. Now she sleeps on my keyboard every morning.",
+    "Got my first commit merged into ripgrep — a one-line documentation fix, but Andrew Gallant replied personally. It felt completely disproportionate how good that made me feel.",
+    "Ran my first 10K last Sunday. Finished in 58 minutes. Both knees ached on Monday but I'm signing up for the next one.",
+    # ── SEMANTIC — timeless facts and knowledge ───────────────────────────────
     "The Ebbinghaus forgetting curve shows we forget roughly 70% of new information within 24 hours without review. Spaced repetition counteracts this by scheduling reviews at increasing intervals.",
     "Python's GIL prevents true multi-threading for CPU-bound tasks, but multiprocessing bypasses it by using separate interpreter processes. For I/O-bound tasks, asyncio is usually the better choice.",
     "AES-256-GCM provides both confidentiality and authenticity. The 128-bit authentication tag detects any tampering with the ciphertext — even flipping a single bit causes decryption to fail.",
+    "CAP theorem: a distributed system can only guarantee two of consistency, availability, and partition tolerance simultaneously. Postgres favors CP; Cassandra favors AP. There is no free lunch.",
+    "Transformer attention is O(n²) in sequence length. Flash Attention avoids materializing the full attention matrix by chunked computation, reducing memory footprint to O(n) while keeping the same output.",
+    "The Unix philosophy: do one thing well, write programs that handle text streams, compose with pipes. The reason a one-liner like `grep | sort | uniq -c | sort -rn` is so powerful is this design philosophy.",
+    "Adam optimizer adapts the learning rate per parameter using first and second moment estimates of the gradient. It usually converges faster than plain SGD but can generalise slightly worse on some problems.",
+    "TCP three-way handshake: SYN → SYN-ACK → ACK. TIME_WAIT state exists to prevent stray packets from a closed connection being misdelivered to a new connection that reuses the same port.",
+    # ── PERSONA — stable preferences and traits ───────────────────────────────
     "I prefer dark mode in all my editors and terminals. Light mode gives me headaches after more than an hour of coding.",
     "I drink exactly two cups of coffee every morning before I start coding. Espresso-based — flat white or cortado. Never instant.",
     "I've been vegetarian for five years. Not vegan — I still eat eggs and dairy. Pescatarian once in a while when travelling.",
     "I work best in 90-minute deep work blocks with a 15-minute break between them. Cal Newport's Deep Work is basically my operating manual.",
+    "I use Neovim with a custom config — took two weeks to feel fluent, but modal editing is now so natural I can't go back. VSCode feels like wading through water.",
+    "I'm mildly introverted. Conferences are energising in small doses but I need at least one full day alone afterwards to recover. I value the connections, not the crowd.",
+    "I listen to lo-fi music or brown noise while coding. Anything with lyrics completely breaks my concentration — even a language I don't understand.",
+    "I prefer written communication over calls. I always ask for an agenda before jumping on anything spontaneous. Async first.",
+    "My resting heart rate is 52 bpm. I run three times a week and do 20 minutes of yoga after morning meditation. Sleep drops everything when I skip the yoga.",
+    "My best ideas come in the shower or on long walks, never at my desk. I keep a paper notebook in the bathroom and a small Moleskine in my jacket pocket.",
+    # ── PROCEDURAL — workflows and how-tos ───────────────────────────────────
     "My morning routine: alarm at 6:30am, 10 minutes of meditation, then coffee while reading emails. No Slack or meetings before 9am. That first 90-minute block is sacred.",
     "My code review checklist: tests written before the PR, no function longer than 40 lines, every public function has a docstring, and the PR description explains the 'why' not just the 'what'.",
     "For deploying to production: run the full test suite locally, create a PR, get one approval minimum, squash merge, then watch the deployment logs for 10 minutes before closing the laptop.",
+    "How I take notes: I use the Zettelkasten method. Every idea gets a permanent note with a unique ID, written in my own words, linked to related notes. No raw quote-dumping — synthesis only.",
+    "My debugging process: first reproduce with a minimal repro case. Then add logging to verify assumptions one at a time. Then binary-search the call stack. Never change two things simultaneously.",
+    "Every Friday at 4pm I do a weekly review: close all tabs, review the task list, archive what's done, and pick the three most important tasks for next week. Takes 20 minutes, saves the whole week.",
+    "When learning a new language or framework: first build something useless but fun (a small CLI toy). Then read the standard library source. Then find how the community idiomatically solves my usual problems.",
+    "My on-call process: acknowledge the alert immediately, open a running notes doc even if I can't fix it fast. The doc prevents context loss if I get paged again before resolution.",
 ]
 
 
 def ensure_demo_vault():
-    """Seed demo vault if it doesn't exist yet."""
+    """Seed (or re-seed) the demo vault."""
+    import shutil
     from vaultmem import VaultSession
     vd = vault_dir(DEMO_NAME)
-    if not vault_exists(DEMO_NAME):
-        vd.mkdir(parents=True, exist_ok=True)
-        with VaultSession.create(vd, DEMO_PASSPHRASE, DEMO_NAME, embedder=_EMBEDDER) as s:
-            for memory in DEMO_MEMORIES:
-                s.add(memory)
-            s.flush()
+    # Remove stale vault so it gets re-seeded with current DEMO_MEMORIES
+    if vd.exists():
+        shutil.rmtree(vd)
+    vd.mkdir(parents=True, exist_ok=True)
+    with VaultSession.create(vd, DEMO_PASSPHRASE, DEMO_NAME, embedder=_EMBEDDER) as s:
+        for memory in DEMO_MEMORIES:
+            s.add(memory)
+        s.flush()
 
 
 if demo_btn:
@@ -208,13 +275,14 @@ if demo_btn:
     st.session_state.messages = [{
         "role": "assistant",
         "content": (
-            "👋 Welcome to the demo vault! I have **13 memories** loaded across all 4 types:\n\n"
-            "- 🕐 **EPISODIC** — Sarah Chen, health checkup, Pragmatic Programmer\n"
-            "- 📚 **SEMANTIC** — Ebbinghaus curve, Python GIL, AES-256-GCM\n"
-            "- 🧠 **PERSONA** — dark mode, coffee habits, vegetarian, deep work\n"
-            "- ⚙️ **PROCEDURAL** — morning routine, code review, deployment process\n\n"
-            "Try asking: *What do I know about Sarah Chen?* or *What's my coffee order?*\n\n"
-            "[See all example conversations on GitHub →](https://github.com/aag1091-alt/vaultmem-demo/blob/main/examples/demo_conversations.md)"
+            "👋 Welcome to the demo vault! I have **36 memories** loaded across all 4 types:\n\n"
+            "- 🕐 **EPISODIC** (10) — NeurIPS meeting, health checkup, Tokyo trip, first 10K run, cat Miso...\n"
+            "- 📚 **SEMANTIC** (8) — Ebbinghaus curve, Python GIL, CAP theorem, Flash Attention, TCP...\n"
+            "- 🧠 **PERSONA** (10) — dark mode, coffee, vegetarian, Neovim, introversion, ideas in the shower...\n"
+            "- ⚙️ **PROCEDURAL** (8) — morning routine, code reviews, Zettelkasten notes, debugging, on-call...\n\n"
+            "Each retrieved memory shows its **relevancy score** and **retrieval tier** (ATOM / COMPOSITE / AFFINITY).\n\n"
+            "Try: *What do I know about Sarah Chen?* · *What's my coffee order?* · *How does Flash Attention work?*\n\n"
+            "[See all 36 conversations on GitHub →](https://github.com/aag1091-alt/vaultmem-demo/blob/main/examples/demo_conversations.md)"
         ),
         "memories": [],
     }]
@@ -318,22 +386,36 @@ else:
                         f"🔍 {len(msg['memories'])} memor{'y' if len(msg['memories']) == 1 else 'ies'} retrieved"
                     ):
                         for m in msg["memories"]:
-                            st.caption(f"• {m}")
+                            score_pct = max(0, int(m["score"] * 100))
+                            stored_on = datetime.fromtimestamp(m["created_at"]).strftime("%b %d, %Y") if m.get("created_at") else "?"
+                            st.caption(
+                                f"`{m.get('type', '')}` `{m['tier']}` **{score_pct}%** · stored {stored_on}"
+                            )
+                            st.caption(f"  {m['content']}")
 
         if user_input := st.chat_input("Tell me something, or ask a question…"):
             st.session_state.messages.append({"role": "user", "content": user_input})
 
             memories = []
             try:
-                from vaultmem import VaultSession
+                from vaultmem import VaultSession, RegexQueryNormalizer
                 vd = vault_dir(name)
-                with VaultSession.open(vd, phr, embedder=_EMBEDDER) as s:
+                normalizer = GroqQueryNormalizer(api_key) if api_key else RegexQueryNormalizer()
+                with VaultSession.open(vd, phr, embedder=_EMBEDDER,
+                                       query_normalizer=normalizer) as s:
                     # Only store statements, not questions
                     if not is_question(user_input):
                         s.add(user_input)
-                    results = s.search(user_input, top_k=4)
+                    results = s.search(user_input, top_k=4, normalize_query=True)
                     memories = [
-                        r.atom.content for r in results
+                        {
+                            "content": r.atom.content,
+                            "score": r.score,
+                            "tier": r.tier,
+                            "type": r.atom.type.value,
+                            "created_at": r.atom.created_at,
+                        }
+                        for r in results
                         if r.atom.content != user_input
                     ][:3]
             except Exception as exc:
