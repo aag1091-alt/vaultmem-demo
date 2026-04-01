@@ -47,7 +47,13 @@ _EMBEDDER = DemoEmbedder()
 
 @st.cache_resource(show_spinner=False)
 def get_sanitizer():
+    """
+    Returns a Sanitizer if presidio + transformers are installed, else None.
+    The demo runs fine without it — sanitizer sections are hidden when unavailable.
+    Install locally with: pip install 'vaultmem[presidio]'
+    """
     try:
+        import presidio_analyzer  # noqa: F401
         from vaultmem import Sanitizer
         return Sanitizer()
     except Exception:
