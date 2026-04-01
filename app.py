@@ -515,16 +515,21 @@ else:
             except Exception as exc:
                 st.warning(f"Vault error: {exc}")
 
-            # ── Sanitize context before sending to Grok ───────────────────
+            # ── Sanitize context + query before sending to Grok ──────────
             sanitized_context = None
+            sanitized_query = user_input
             restoration_map: dict[str, str] = {}
             if api_key and memories:
                 sanitizer = get_sanitizer()
                 if sanitizer:
+                    # Sanitize context first — establishes the entity→pseudonym map
                     raw_context = "\n".join(f"- {m['content']}" for m in memories)
                     sanitized_context, restoration_map = sanitizer.sanitize(raw_context)
+                    # Sanitize query using the same sanitizer instance so the same
+                    # names map to the same pseudonyms ("Sarah Chen" → "Casey" in both)
+                    sanitized_query, restoration_map = sanitizer.sanitize(user_input)
 
-            raw_reply = respond(user_input, memories, api_key or "",
+            raw_reply = respond(sanitized_query, memories, api_key or "",
                                 sanitized_context=sanitized_context)
 
             # Restore real names/values in the response
