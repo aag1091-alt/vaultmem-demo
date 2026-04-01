@@ -605,9 +605,6 @@ else:
                     if call["sanitized_context"]:
                         st.caption("**Sent to LLM:**")
                         st.code(call["sanitized_context"], language=None)
-                    else:
-                        st.caption("**Sent to LLM (no sanitizer):**")
-                        st.caption("*(Presidio not installed — raw context was used)*")
 
                     if rmap:
                         st.caption("**Entities redacted:**")
