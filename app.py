@@ -43,6 +43,16 @@ class DemoEmbedder:
 
 _EMBEDDER = DemoEmbedder()
 
+# ── Sanitizer (loaded once — downloads dslim/bert-base-NER on first use) ──────
+
+@st.cache_resource(show_spinner="Loading PII sanitizer…")
+def get_sanitizer():
+    try:
+        from vaultmem import Sanitizer
+        return Sanitizer()
+    except Exception:
+        return None
+
 # ── Vault helpers ─────────────────────────────────────────────────────────────
 
 VAULTS_DIR = Path("./vaults")
@@ -115,7 +125,8 @@ class GroqQueryNormalizer:
 
 
 
-def respond(query: str, memories: list[dict], groq_key: str) -> str:
+def respond(query: str, memories: list[dict], groq_key: str,
+            sanitized_context: str | None = None) -> str:
     if not memories:
         if is_question(query):
             return "I don't have anything in memory about that yet. Tell me first and I'll remember it."
@@ -126,7 +137,8 @@ def respond(query: str, memories: list[dict], groq_key: str) -> str:
     if groq_key:
         try:
             from groq import Groq
-            mem_block = "\n".join(f"- {c}" for c in contents)
+            # Use sanitized context if available, otherwise raw memories
+            mem_block = sanitized_context or "\n".join(f"- {c}" for c in contents)
             msg = Groq(api_key=groq_key).chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 max_tokens=400,
@@ -398,6 +410,17 @@ else:
                             )
                             st.caption(f"  {m['content']}")
 
+                if msg.get("sanitized_context"):
+                    rmap = msg.get("restoration_map", {})
+                    label = f"🔏 What was sent to Grok ({len(rmap)} entit{'y' if len(rmap) == 1 else 'ies'} redacted)"
+                    with st.expander(label):
+                        st.caption("PII-stripped context passed to the LLM — real values never left this client.")
+                        st.code(msg["sanitized_context"], language=None)
+                        if rmap:
+                            st.caption("**Replacement map** (restored in the response):")
+                            for pseudo, real in rmap.items():
+                                st.caption(f"  `{pseudo}` → `{real}`")
+
         if user_input := st.chat_input("Tell me something, or ask a question…"):
             st.session_state.messages.append({"role": "user", "content": user_input})
 
@@ -426,10 +449,31 @@ else:
             except Exception as exc:
                 st.warning(f"Vault error: {exc}")
 
-            reply = respond(user_input, memories, api_key or "")
-            st.session_state.messages.append(
-                {"role": "assistant", "content": reply, "memories": memories}
-            )
+            # ── Sanitize context before sending to Grok ───────────────────
+            sanitized_context = None
+            restoration_map: dict[str, str] = {}
+            if api_key and memories:
+                sanitizer = get_sanitizer()
+                if sanitizer:
+                    raw_context = "\n".join(f"- {m['content']}" for m in memories)
+                    sanitized_context, restoration_map = sanitizer.sanitize(raw_context)
+
+            reply = respond(user_input, memories, api_key or "",
+                            sanitized_context=sanitized_context)
+
+            # Restore real names/values in the response
+            if restoration_map:
+                sanitizer = get_sanitizer()
+                if sanitizer:
+                    reply = sanitizer.restore(reply, restoration_map)
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": reply,
+                "memories": memories,
+                "sanitized_context": sanitized_context,
+                "restoration_map": restoration_map,
+            })
             st.rerun()
 
     # ── Platform view ─────────────────────────────────────────────────────────
