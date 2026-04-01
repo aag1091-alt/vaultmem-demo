@@ -10,7 +10,9 @@ Deploy free:
 """
 
 import hashlib
+import json
 import re
+import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -89,6 +91,59 @@ def encrypted_preview(name: str) -> str:
 def vault_file_sizes(name: str) -> list[tuple[str, int]]:
     d = vault_dir(name)
     return [(f.name, f.stat().st_size) for f in sorted(d.glob("*")) if f.is_file()]
+
+
+# ── LLM call log (SQLite) ─────────────────────────────────────────────────────
+
+def _log_db(vault_name: str) -> Path:
+    return vault_dir(vault_name) / "llm_log.db"
+
+
+def _init_log(vault_name: str) -> None:
+    with sqlite3.connect(_log_db(vault_name)) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS llm_calls (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at       REAL,
+                query            TEXT,
+                sanitized_context TEXT,
+                restoration_map  TEXT,
+                raw_reply        TEXT,
+                final_reply      TEXT
+            )
+        """)
+
+
+def save_llm_call(vault_name: str, query: str, sanitized_context: str | None,
+                  restoration_map: dict, raw_reply: str, final_reply: str) -> None:
+    _init_log(vault_name)
+    with sqlite3.connect(_log_db(vault_name)) as conn:
+        conn.execute(
+            "INSERT INTO llm_calls "
+            "(created_at, query, sanitized_context, restoration_map, raw_reply, final_reply) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                datetime.utcnow().timestamp(),
+                query,
+                sanitized_context,
+                json.dumps(restoration_map),
+                raw_reply,
+                final_reply,
+            ),
+        )
+
+
+def load_llm_calls(vault_name: str) -> list[dict]:
+    db = _log_db(vault_name)
+    if not db.exists():
+        return []
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM llm_calls ORDER BY created_at DESC LIMIT 20"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
 
 # ── LLM response ──────────────────────────────────────────────────────────────
 
@@ -479,6 +534,17 @@ else:
                 if sanitizer:
                     reply = sanitizer.restore(raw_reply, restoration_map)
 
+            # Persist to LLM call log
+            if api_key and memories:
+                try:
+                    save_llm_call(
+                        name, user_input,
+                        sanitized_context, restoration_map,
+                        raw_reply, reply,
+                    )
+                except Exception:
+                    pass
+
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": reply,
@@ -521,3 +587,36 @@ else:
             language=None,
         )
         st.caption("MEK is zeroed from RAM on session close. The platform never sees it.")
+
+        # ── LLM call log ──────────────────────────────────────────────────────
+        st.divider()
+        st.subheader("📋 LLM Context Log")
+        st.caption("Every context block sent to the LLM — query, what was sanitized, and the raw response.")
+
+        llm_calls = load_llm_calls(name)
+        if not llm_calls:
+            st.caption("No LLM calls yet. Ask a question to see the log.")
+        else:
+            for call in llm_calls:
+                ts = datetime.fromtimestamp(call["created_at"]).strftime("%H:%M:%S")
+                rmap = json.loads(call["restoration_map"] or "{}")
+                redacted_note = f" · {len(rmap)} redacted" if rmap else ""
+                with st.expander(f"[{ts}] {call['query'][:45]}…{redacted_note}"):
+                    if call["sanitized_context"]:
+                        st.caption("**Sent to LLM:**")
+                        st.code(call["sanitized_context"], language=None)
+                    else:
+                        st.caption("**Sent to LLM (no sanitizer):**")
+                        st.caption("*(Presidio not installed — raw context was used)*")
+
+                    if rmap:
+                        st.caption("**Entities redacted:**")
+                        for real, pseudo in rmap.items():
+                            st.caption(f"  `{real}` → `{pseudo}`")
+
+                    if call["raw_reply"] and call["raw_reply"] != call["final_reply"]:
+                        st.caption("**Raw LLM response (with pseudonyms):**")
+                        st.markdown(call["raw_reply"])
+
+                    st.caption("**Final response (restored):**")
+                    st.markdown(call["final_reply"])
