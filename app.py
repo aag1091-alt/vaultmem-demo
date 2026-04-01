@@ -45,7 +45,7 @@ _EMBEDDER = DemoEmbedder()
 
 # ── Sanitizer (loaded once — downloads dslim/bert-base-NER on first use) ──────
 
-@st.cache_resource(show_spinner="Loading PII sanitizer…")
+@st.cache_resource(show_spinner=False)
 def get_sanitizer():
     try:
         from vaultmem import Sanitizer
@@ -412,14 +412,19 @@ else:
 
                 if msg.get("sanitized_context"):
                     rmap = msg.get("restoration_map", {})
-                    label = f"🔏 What was sent to Grok ({len(rmap)} entit{'y' if len(rmap) == 1 else 'ies'} redacted)"
-                    with st.expander(label):
-                        st.caption("PII-stripped context passed to the LLM — real values never left this client.")
+                    with st.expander(f"🔏 Sent to Grok — {len(rmap)} entit{'y' if len(rmap) == 1 else 'ies'} redacted"):
+                        st.caption("PII-stripped context — real values stayed on your device.")
                         st.code(msg["sanitized_context"], language=None)
                         if rmap:
-                            st.caption("**Replacement map** (restored in the response):")
-                            for pseudo, real in rmap.items():
-                                st.caption(f"  `{pseudo}` → `{real}`")
+                            st.caption("Replaced:")
+                            cols = st.columns(2)
+                            for i, (pseudo, real) in enumerate(rmap.items()):
+                                cols[i % 2].caption(f"`{real}` → `{pseudo}`")
+
+                if msg.get("raw_reply"):
+                    with st.expander("🤖 Grok's raw response (before restoration)"):
+                        st.caption("This is exactly what Grok returned — using pseudonyms, not your real data.")
+                        st.markdown(msg["raw_reply"])
 
         if user_input := st.chat_input("Tell me something, or ask a question…"):
             st.session_state.messages.append({"role": "user", "content": user_input})
@@ -458,20 +463,22 @@ else:
                     raw_context = "\n".join(f"- {m['content']}" for m in memories)
                     sanitized_context, restoration_map = sanitizer.sanitize(raw_context)
 
-            reply = respond(user_input, memories, api_key or "",
-                            sanitized_context=sanitized_context)
+            raw_reply = respond(user_input, memories, api_key or "",
+                                sanitized_context=sanitized_context)
 
             # Restore real names/values in the response
+            reply = raw_reply
             if restoration_map:
                 sanitizer = get_sanitizer()
                 if sanitizer:
-                    reply = sanitizer.restore(reply, restoration_map)
+                    reply = sanitizer.restore(raw_reply, restoration_map)
 
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": reply,
                 "memories": memories,
                 "sanitized_context": sanitized_context,
+                "raw_reply": raw_reply if restoration_map else None,
                 "restoration_map": restoration_map,
             })
             st.rerun()
