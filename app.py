@@ -140,7 +140,7 @@ def load_llm_calls(vault_name: str) -> list[dict]:
     with sqlite3.connect(db) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT * FROM llm_calls ORDER BY created_at DESC LIMIT 20"
+            "SELECT * FROM llm_calls ORDER BY created_at DESC LIMIT 3"
         ).fetchall()
     return [dict(r) for r in rows]
 
