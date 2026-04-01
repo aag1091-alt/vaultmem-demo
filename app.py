@@ -57,7 +57,7 @@ def get_sanitizer():
     try:
         import presidio_analyzer  # noqa: F401
         from vaultmem import Sanitizer
-        return Sanitizer()
+        return Sanitizer(backend="spacy")
     except Exception:
         return None
 

@@ -1,4 +1,7 @@
-vaultmem>=0.3.0
+vaultmem[spacy]>=0.3.1
 streamlit>=1.32.0
 numpy>=1.24
 groq>=0.9.0
+presidio-analyzer>=2.2
+spacy>=3.7
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
